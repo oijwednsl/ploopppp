@@ -465,8 +465,11 @@ VIEWS.signin=el=>{el.classList.add('blue');
           const uname=$('#username',el).value.trim().toLowerCase().replace(/^@/,'');
           if(!/^[a-z0-9_.]{2,20}$/.test(uname))throw new Error('Username must be 2–20 characters: letters, numbers, dots or underscores.');
           if(password.length<6)throw new Error('Password must be at least 6 characters.');
-          if((await DB.doc('accounts/'+uname).get()).exists)throw new Error('That username is already taken.');
-          const cred=await AUTH.createUserWithEmailAndPassword(email,password);AUTH_USER=cred.user;
+const cred=await AUTH.createUserWithEmailAndPassword(email,password);AUTH_USER=cred.user;
+let taken=false;
+try{taken=(await DB.doc('accounts/'+uname).get()).exists}
+catch(e){await cred.user.delete().catch(()=>{});AUTH_USER=null;throw e}
+if(taken){await cred.user.delete().catch(()=>{});AUTH_USER=null;throw new Error('That username is already taken.')}
           OB={id:uname,name:'',photo:null,friends:[]};show('name','a-up');
         }
       }catch(e){console.error('Authentication failed',e);const messages={'auth/email-already-in-use':'That email already has a Ploop account. Sign in instead.','auth/invalid-email':'Enter a valid email address.','auth/weak-password':'Choose a stronger password (at least 6 characters).','auth/user-not-found':'No account found for that email. Create an account first.','auth/wrong-password':'Incorrect password.','auth/invalid-credential':'Email or password is incorrect.','auth/too-many-requests':'Too many attempts. Try again later.','auth/network-request-failed':'Network error. Check your connection.'};err.textContent=messages[e.code]||e.message||'Could not sign in.';
