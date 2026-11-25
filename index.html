@@ -632,13 +632,14 @@ function drawPot(el){const r=room(),pw=el&&$('#potw',el);if(!r||!pw||closingNow.
 function drawBar(el){const r=room(),cb=el&&$('#cb',el);if(!r||!cb)return;const rm=readyMap(r),others=r.members.filter(m=>m!==ME.id&&rm[m]).map(dn),me=!!rm[ME.id],waiting=r.members.filter(m=>!rm[m]&&m!==ME.id).map(dn);const has=CANV.some(c=>c.cap===capCur(r));
   if(!me)cb.innerHTML=`<div><h2>${others.length?esc(list(others))+(others.length>1?' are':' is')+' ready to close the capsule':'Are you ready to close the capsule?'}</h2><p>The capsule will close when everyone is ready.</p></div><button class="ready" id="rd" ${has?'':'disabled'}>I am ready</button>`;
   else cb.innerHTML=`<div><h2>${esc(list(['You',...others]))} ${others.length?'are':'are'} ready to close the capsule</h2><p>${waiting.length?'Waiting for '+esc(list(waiting))+'… ':''}<a id="undo">not yet</a></p></div>`;
-  const rd=$('#rd',el);if(rd)rd.onclick=async()=>{rd.disabled=true;await W(()=>DB.doc('rooms/'+r.id).update({ready:{[capCur(r)]:{[ME.id]:true}}}));simulateBots(r.id)};
-  const un=$('#undo',el);if(un)un.onclick=async()=>{const m={...readyMap(r)};delete m[ME.id];await W(()=>DB.doc('rooms/'+r.id).update({ready:{[capCur(r)]:{[ME.id]:false}}}))}}
-const simT={};
+  const rd=$('#rd',el);if(rd)rd.onclick=async()=>{rd.disabled=true;await W(()=>setReady(r,ME.id,true));simulateBots(r.id)};
+const un=$('#undo',el);if(un)un.onclick=async()=>{await W(()=>setReady(r,ME.id,false))}
+   const simT={};
 function simulateBots(rid){clearTimeout(simT[rid]);const step=async()=>{const r=ROOMS.find(x=>x.id===rid);if(!r||!readyMap(r)[ME.id])return;const b=r.members.find(m=>isBot(m)&&!readyMap(r)[m]);if(!b)return;
-  try{await DB.doc('rooms/'+rid).update({ready:{[capCur(r)]:{[b]:true}}});toast(`${b.slice(4)} is ready too!`)}catch(e){}simT[rid]=setTimeout(step,2400)};simT[rid]=setTimeout(step,2400)}
+  try{await setReady(r,b,true);toast(`${b.slice(4)} is ready too!`)}catch(e){}simT[rid]=setTimeout(step,2400)};simT[rid]=setTimeout(step,2400)}
 const closingNow=new Set();
-async function tryClose(r){const capId=capCur(r);if(!capId||closingNow.has(capId))return;closingNow.add(capId);
+const setReady=(r,who,val)=>DB.doc('rooms/'+r.id).update(new firebase.firestore.FieldPath('ready',capCur(r),who),val);
+   async function tryClose(r){const capId=capCur(r);if(!capId||closingNow.has(capId))return;closingNow.add(capId);
   try{const lease=await DB.doc('rooms/'+r.id).acquire({holder:ME.id+':'+nid(),ttlMs:15000});if(!lease||!lease.acquired){closingNow.delete(capId);return}
     const fresh=await gd('rooms/'+r.id);if(!fresh||capCur(fresh)!==capId||!allReady(fresh)){closingNow.delete(capId);return}
     const anim=curScreen==='capsule'&&CUR===r.id;if(anim){BUSY=true;await closeAnimStart()}
@@ -815,8 +816,8 @@ async function dropAnim(img){const p=document.createElement('img');p.src=img;p.s
 $('#dev').onclick=async e=>{const k=e.target.closest('button')?.dataset.dev;if(!k)return;$('#dev').classList.remove('open');
   if(!ME&&k!=='wipe')return toast('Sign in first');const r=room();
   if(k==='time'){if(!r)return toast('Open a room first');await W(()=>DB.doc('rooms/'+r.id).update({nextOpen:Date.now()-1000}));toast(`Opening time reached in ${r.name} — visit the gacha machine`)}
-  if(k==='ready'){if(!r)return toast('Open a room first');const m={};r.members.filter(x=>x!==ME.id).forEach(x=>m[x]=true);await W(()=>DB.doc('rooms/'+r.id).update({ready:{[capCur(r)]:m}}));toast(`Everyone in ${r.name} is ready except you`)}
-  if(k==='hints'){seen={};saveSeen();pendingHints.clear();if(['doors','room','shelf','gacha','capsule'].includes(curScreen))render(curScreen);toast('Hints will show again on each screen')}
+if(k==='ready'){if(!r)return toast('Open a room first');for(const x of r.members.filter(x=>x!==ME.id))await W(()=>setReady(r,x,true));toast(`Everyone in ${r.name} is ready except you`)}
+if(k==='hints'){seen={};saveSeen();pendingHints.clear();if(['doors','room','shelf','gacha','capsule'].includes(curScreen))render(curScreen);toast('Hints will show again on each screen')}
   if(k==='out')signOut();
   if(k==='wipe'){if(MODE==='cloud')return;sheet(`<h3>Erase everything on this device?</h3><p class="muted">All test accounts, rooms and canvases saved in this browser will be deleted.</p><div class="row" style="margin-top:16px"><button class="ghost" id="k">Cancel</button><button class="btn" id="d" style="flex:1;background:#e07878;color:#fff">Erase</button></div>`,b=>{$('#k',b).onclick=closeSheet;$('#d',b).onclick=()=>{closeSheet();stopSubs();LOCAL.wipe();['ploop.me','ploop.recent'].forEach(LS.del);ME=null;show('signin')}})}
 };
