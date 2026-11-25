@@ -277,8 +277,7 @@ body.mobile #devToggle{display:block;position:fixed;right:10px;bottom:10px;z-ind
 <div id="stage">
   <div id="phoneWrap"><div id="phone">
     <div id="screens"></div>
-    <div id="fx"></div>
-    <div class="toast" id="toast"></div>
+    <div id="fx"></div>    <div class="toast" id="toast"></div>
   </div></div>
   <aside id="dev" aria-label="Test tools">
     <h1>Ploop prototype</h1>
@@ -499,16 +498,16 @@ async function seedDemo(uid){const now=Date.now(),D=864e5;const rid='r'+nid(),ca
   const zines=[['01.26','january 2026','1/1 - 15/1',[0,1,2,3,4,5,6,7,8]],['02.26','february 2026','1/2 - 14/2',[9,10,11,12,13,14,15,0]],['04.26','april 2026','2/4 - 16/4',[3,6,9,12,1,4,7,10,13]],['05.26','may 2026','1/5 - 15/5',[2,5,8,11,14,15]],['06.26','june 2026','1/6 - 14/6',[13,12,11,10,9,8,7,6,5,4,3,2]]];
   const zids=zines.map(()=>'k'+nid());
   const w=[];
-  zines.forEach(([m,t,rg,pg],i)=>w.push(DB.doc('capsules/'+zids[i]).set({room:rid,status:'opened',month:m,title:t,range:rg,by,color:BOOK[i%BOOK.length],pages:pg.map(n=>'art:'+n),closed:now-(60-i*8)*D,opened:now-(58-i*8)*D,x:0,y:0,r:0})));
-  [['10.26','october 2026','1/10 - 15/10',[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14]],['09.26','september 2026','1/9 - 14/9',[4,8,12,2,6,10]],['08.26','august 2026','2/8 - 16/8',[1,3,5,7,9,11,13]]].forEach(([m,t,rg,pg],i)=>w.push(DB.doc('capsules/k'+nid()).set({room:rid,status:'machine',month:m,title:t,range:rg,by,color:PILL[(i*2)%PILL.length],pages:pg.map(n=>'art:'+n),closed:now-(20-i)*D,...pillPos(i)})));
-  w.push(DB.doc('canvases/c'+nid()).set({room:rid,cap:capA,by:'bot:Jamie',art:3,at:now-2*D}));
-  w.push(DB.doc('canvases/c'+nid()).set({room:rid,cap:capA,by:'bot:Allison',art:8,at:now-D}));
-  w.push(DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:0,e:'😍',x:82,y:14,text:'',by:'bot:Jamie',at:now-50*D}));
-  w.push(DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:1,e:'',x:0,y:0,text:'Why???',by:'bot:Allison',at:now-49*D}));
-  w.push(DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:3,e:'👉',x:10,y:70,text:'',by:'bot:Jacob',at:now-49*D}));
+  zines.forEach(([m,t,rg,pg],i)=>w.push(()=>DB.doc('capsules/'+zids[i]).set({room:rid,status:'opened',month:m,title:t,range:rg,by,color:BOOK[i%BOOK.length],pages:pg.map(n=>'art:'+n),closed:now-(60-i*8)*D,opened:now-(58-i*8)*D,x:0,y:0,r:0})));
+  [['10.26','october 2026','1/10 - 15/10',[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14]],['09.26','september 2026','1/9 - 14/9',[4,8,12,2,6,10]],['08.26','august 2026','2/8 - 16/8',[1,3,5,7,9,11,13]]].forEach(([m,t,rg,pg],i)=>w.push(()=>DB.doc('capsules/k'+nid()).set({room:rid,status:'machine',month:m,title:t,range:rg,by,color:PILL[(i*2)%PILL.length],pages:pg.map(n=>'art:'+n),closed:now-(20-i)*D,...pillPos(i)})));
+  w.push(()=>DB.doc('canvases/c'+nid()).set({room:rid,cap:capA,by:'bot:Jamie',art:3,at:now-2*D}));
+  w.push(()=>DB.doc('canvases/c'+nid()).set({room:rid,cap:capA,by:'bot:Allison',art:8,at:now-D}));
+  w.push(()=>DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:0,e:'😍',x:82,y:14,text:'',by:'bot:Jamie',at:now-50*D}));
+  w.push(()=>DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:1,e:'',x:0,y:0,text:'Why???',by:'bot:Allison',at:now-49*D}));
+  w.push(()=>DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:3,e:'👉',x:10,y:70,text:'',by:'bot:Jacob',at:now-49*D}));
   // Create the parent room first so Firestore membership rules allow its child documents.
   await DB.doc('rooms/'+rid).set({name:'MUNCHERS',d:'#e08080',p:'#ffadb5',w:'#bfdcf7',f:'#9bbde0',hb:'#93545a',hl:'#62494b',group:['#f9a77a','#d3b8e3','#aed58f','#a6b3e8'],members:by,drawing:null,pinned:[zids[0]],nextOpen:now+(14*60+31)*6e4,cap:{id:capA,started:now-5*D},ready:{[capA]:{'bot:Jamie':true,'bot:Allison':true}},created:now,owner:uid});
-  await Promise.all(w);
+  await Promise.all(w.map(write=>write()));
 }
 
 /* ---------- friends ---------- */
@@ -557,8 +556,7 @@ VIEWS.doors=el=>{
     $('.handle',pg).onclick=()=>openDoor(pg,r.id);
     $('.slot',pg).onclick=()=>{setRoom(r.id);openEditor('door')};
     $('.dname',pg).onclick=()=>{setRoom(r.id);renameSheet()};
-    $('.photo',pg).onclick=()=>{setRoom(r.id);openDraw('rect',async img=>{await W(()=>DB.doc('rooms/'+r.id).update({drawing:img}));toast('New door drawing pinned')})};
-    $$('.pinz',pg).forEach(p=>p.onclick=()=>{setRoom(r.id);const id=p.dataset.z;BUSY=true;setTimeout(()=>{BUSY=false;CAPS.find(c=>c.id===id)?show('zine','a-zin',id,'doors'):toast('Loading that zine…')},250)});
+    $('.photo',pg).onclick=()=>{setRoom(r.id);openDraw('rect',async img=>{await W(()=>DB.doc('rooms/'+r.id).update({drawing:img}));toast('New door drawing pinned')})};    $$('.pinz',pg).forEach(p=>p.onclick=()=>{setRoom(r.id);const id=p.dataset.z;BUSY=true;setTimeout(()=>{BUSY=false;CAPS.find(c=>c.id===id)?show('zine','a-zin',id,'doors'):toast('Loading that zine…')},250)});
   });
   if(ROOMS.length)hints('door',el);
 };
