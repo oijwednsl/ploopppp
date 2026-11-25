@@ -295,6 +295,9 @@ body.mobile #devToggle{display:block;position:fixed;right:10px;bottom:10px;z-ind
 </div>
 <input type="file" id="file" accept="image/*" hidden>
 <script src="art.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
 {
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -337,16 +340,17 @@ function LocalStore(key){
   return{doc:docRef,collection:c=>query(c,[]),wipe(){data={};LS.del(key);notify()}};
 }
 const LOCAL=LocalStore('ploop.db.v2');
-let DB=LOCAL, MODE='local';
+const firebaseConfig={apiKey:'AIzaSyDF9f1Ny4UGERcwWjFP3CUZ8d6wAvSIohQ',authDomain:'ploop-5076e.firebaseapp.com',projectId:'ploop-5076e',storageBucket:'ploop-5076e.firebasestorage.app',messagingSenderId:'216249695418',appId:'1:216249695418:web:513e18d3c3d7ebd6f9d683',measurementId:'G-JXK1RDCWV7'};
+let DB=null,MODE='connecting',AUTH=null,AUTH_USER=null;
 async function initStore(){
-  if(typeof window.claude?.use!=='function')return;
-  try{const r=await Promise.race([Promise.all([window.claude.use('db'),window.claude.use('user')]),wait(9000).then(()=>null)]);
-    if(r&&r[0]){let can=null;try{can=r[1]?await r[1].can('data.write'):null}catch(e){}
-      if(can!==false){DB=r[0];MODE='cloud'}else MODE='local-readonly'}}catch(e){}
+  if(!window.firebase)throw new Error('Firebase SDK did not load. Check your internet connection.');
+  const app=firebase.apps.length?firebase.app():firebase.initializeApp(firebaseConfig);
+  AUTH=firebase.auth();DB=firebase.firestore();
+  await AUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+  MODE='cloud';
 }
-function useLocal(why){if(DB===LOCAL)return;DB=LOCAL;MODE='local';modeLabel();if(why)toast(why,3600)}
-const MODE_TXT={cloud:'☁️ Saving to the shared test space — testers can find each other and share rooms','local-readonly':'👀 You can open the shared space but not save to it, so this account lives on this device only. Ask the owner to share the prototype with you as Contributor or Editor.',local:'📱 Saving on this device only (this browser) — only accounts made on this device can be friends'};
-function modeLabel(){const m=$('#mode');m.textContent=MODE_TXT[MODE]||MODE_TXT.local;$('#wipeBtn').style.display=MODE==='cloud'?'none':'block'}
+const MODE_TXT={cloud:'☁️ Connected to Ploop cloud — accounts and rooms sync across devices',connecting:'Connecting to Ploop cloud…',error:'Cloud connection unavailable — check your connection and Firebase setup'};
+function modeLabel(){const m=$('#mode');if(m)m.textContent=MODE_TXT[MODE]||MODE_TXT.error;const w=$('#wipeBtn');if(w)w.style.display='none'}
 const gd=async p=>{const s=await DB.doc(p).get();return s.exists?{id:s.id,...s.data()}:null};
 async function W(fn){try{return await fn()}catch(e){if(e&&e.code==='quota_exceeded'){toast('Storage is full — '+(MODE==='cloud'?'the test space can\'t take more':'clear this device in test tools'),4000)}else if(e&&e.code==='unavailable'){await wait(600+Math.random()*600);return await fn()}else{toast('Couldn\'t save that — try again');console.error(e)}throw e}}
 
@@ -373,7 +377,7 @@ const saveSeen=()=>ME&&LS.set('ploop.seen.'+ME.id,seen);
 
 /* ================= subscriptions ================= */
 let subs=[],rsubs=[],subRoomId=null,lastCap={};
-const onErr=e=>{console.warn('db',e);if(e&&e.code==='revoked'){useLocal('Lost access to the shared space — saving on this device now')}};
+const onErr=e=>{console.warn('Firestore listener error',e);if(e&&e.code==='permission-denied')toast('Cloud access denied. Check that the Firestore rules were published.',4200)};
 function startSubs(){stopSubs();
   subs.push(DB.collection('accounts').onSnapshot(s=>{for(const k in ACC)delete ACC[k];s.docs.forEach(d=>ACC[d.id]={id:d.id,...d.data()});if(ME&&ACC[ME.id])ME=ACC[ME.id];changed()},onErr));
   subs.push(DB.collection('rooms').where('members','array-contains',ME.id).onSnapshot(s=>{ROOMS=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.created||0)-(b.created||0));
@@ -447,17 +451,31 @@ function backToRoom(){show('room',null);const rm=$('.room');rm.style.transition=
 /* ---------- sign in & onboarding ---------- */
 VIEWS.load=el=>{el.classList.add('blue');el.innerHTML='<div class="logo" style="top:350px"><b>Ploop</b><p>capture your time together</p></div>'};
 let OB=null;
-VIEWS.signin=el=>{el.classList.add('blue');const recent=(LS.get('ploop.recent',[])||[]).filter(u=>typeof u==='string').slice(0,6);
-  el.innerHTML=`<div class="logo"><b>Ploop</b><p>capture your time together</p></div><div class="ob" style="padding-top:420px"><p class="ttl">Sign in with a username</p><input class="field" id="u" placeholder="@username" autocomplete="off" autocapitalize="off" spellcheck="false"><p class="muted" style="margin:8px 0 0">New username? We'll set up a test account for you. No password needed.</p>${recent.length?`<p class="muted" style="margin:22px 0 0">Used on this device</p><div class="recent">${recent.map(u=>`<button data-u="${esc(u)}">@${esc(u)}</button>`).join('')}</div>`:''}</div><button class="btn wide" id="go">Continue</button><div style="position:absolute;left:0;right:0;bottom:100px;text-align:center"><span class="badge" style="max-width:320px;display:inline-block">${MODE==='cloud'?'Shared test space: testers on other phones can find you and join your rooms':MODE==='local-readonly'?'View-only access: this account will be saved on this device only':'Progress is saved on this device'}</span></div>`;
-  const u=$('#u',el),go=$('#go',el);const clean=()=>u.value.trim().toLowerCase().replace(/^@/,'');
-  const ok=()=>go.disabled=!/^[a-z0-9_.]{2,20}$/.test(clean());u.oninput=ok;ok();u.onkeydown=e=>{e.key==='Enter'&&!go.disabled&&go.click()};
-  go.onclick=()=>signIn(clean());$$('.recent button',el).forEach(b=>b.onclick=()=>signIn(b.dataset.u));
+let authScreenMode='login';
+VIEWS.signin=el=>{el.classList.add('blue');
+  const draw=()=>{el.innerHTML=`<div class="logo"><b>Ploop</b><p>capture your time together</p></div><div class="ob" style="padding-top:330px"><p class="ttl">${authScreenMode==='login'?'Welcome back':'Create your account'}</p><input class="field" id="email" type="email" placeholder="Email" autocomplete="email"><input class="field" id="password" type="password" placeholder="Password (at least 6 characters)" autocomplete="${authScreenMode==='login'?'current-password':'new-password'}" style="margin-top:10px">${authScreenMode==='register'?'<input class="field" id="username" placeholder="Choose a username" autocomplete="username" autocapitalize="off" style="margin-top:10px"><p class="muted">Your username is how friends find you.</p>':''}<p class="muted" id="authError" style="min-height:22px;margin-top:10px"></p></div><button class="btn wide" id="go">${authScreenMode==='login'?'Sign in':'Create account'}</button><button class="ghost" id="switch" style="position:absolute;bottom:104px;left:0;width:100%;text-align:center">${authScreenMode==='login'?"New to Ploop? Create an account":"Already have an account? Sign in"}</button>`;
+    $('#switch',el).onclick=()=>{authScreenMode=authScreenMode==='login'?'register':'login';draw()};
+    $('#go',el).onclick=async()=>{const b=$('#go',el),email=$('#email',el).value.trim().toLowerCase(),password=$('#password',el).value,err=$('#authError',el);b.disabled=true;b.textContent='…';err.textContent='';
+      try{if(!email||!password)throw new Error('Enter your email and password.');
+        if(authScreenMode==='login'){
+          const cred=await AUTH.signInWithEmailAndPassword(email,password);AUTH_USER=cred.user;
+          const q=await DB.collection('accounts').where('uid','==',cred.user.uid).limit(1).get();
+          if(q.empty){await AUTH.signOut();throw new Error('No Ploop profile is linked to this login. Create a new account or contact support.');}
+          const d=q.docs[0];await enter({id:d.id,...d.data()});
+        }else{
+          const uname=$('#username',el).value.trim().toLowerCase().replace(/^@/,'');
+          if(!/^[a-z0-9_.]{2,20}$/.test(uname))throw new Error('Username must be 2–20 characters: letters, numbers, dots or underscores.');
+          if(password.length<6)throw new Error('Password must be at least 6 characters.');
+          if((await DB.doc('accounts/'+uname).get()).exists)throw new Error('That username is already taken.');
+          const cred=await AUTH.createUserWithEmailAndPassword(email,password);AUTH_USER=cred.user;
+          OB={id:uname,name:'',photo:null,friends:[]};show('name','a-up');
+        }
+      }catch(e){console.error('Authentication failed',e);const messages={'auth/email-already-in-use':'That email already has a Ploop account. Sign in instead.','auth/invalid-email':'Enter a valid email address.','auth/weak-password':'Choose a stronger password (at least 6 characters).','auth/user-not-found':'No account found for that email. Create an account first.','auth/wrong-password':'Incorrect password.','auth/invalid-credential':'Email or password is incorrect.','auth/too-many-requests':'Too many attempts. Try again later.','auth/network-request-failed':'Network error. Check your connection.'};err.textContent=messages[e.code]||e.message||'Could not sign in.';
+      }finally{if(el.isConnected){b.disabled=false;b.textContent=authScreenMode==='login'?'Sign in':'Create account'}}};
+  };draw();
 };
-async function signIn(uname){if(signIn.busy)return;signIn.busy=true;try{
-  let acc=await gd('accounts/'+uname);
-  if(acc){await enter(acc)}else{OB={id:uname,name:'',photo:null,friends:[]};show('name','a-up')}
-}catch(e){toast('Couldn\'t reach the test space');console.error(e)}finally{signIn.busy=false}}
-async function enter(acc){ME=acc;const r=(LS.get('ploop.recent',[])||[]).filter(x=>x!==acc.id);r.unshift(acc.id);LS.set('ploop.recent',r.slice(0,8));LS.set('ploop.me',acc.id);
+async function signIn(uname){toast('Please sign in with your email and password.');}
+async function enter(acc){ME=acc;AUTH_USER=AUTH?.currentUser||AUTH_USER;const r=(LS.get('ploop.recent',[])||[]).filter(x=>x!==acc.id);r.unshift(acc.id);LS.set('ploop.recent',r.slice(0,8));LS.set('ploop.me',acc.id);
   seen=LS.get('ploop.seen.'+acc.id,{})||{};CUR=null;ROOMS=[];startSubs();show('doors','a-zin')}
 const dots=n=>`<div class="dots">${[0,1,2,3].map(i=>`<i class="${i<n?'on':''}"></i>`).join('')}</div>`;
 VIEWS.name=el=>{el.classList.add('blue');el.innerHTML=`${dots(1)}<button class="back" aria-label="Back">${BACK}</button><div class="ob" style="padding-top:300px"><p class="ttl">How can I call you?</p><input class="field" id="f" placeholder="Name" maxlength="20" value="${esc(OB.name)}" autocomplete="off"><p class="muted" style="margin:10px 0 0">Your username: @${esc(OB.id)}</p></div><button class="btn wide" id="nx">Next</button>`;
@@ -473,8 +491,8 @@ VIEWS.friends=el=>{el.classList.add('blue');el.innerHTML=`${dots(3)}<button clas
   $('.back',el).onclick=()=>show('photo');$('#nx',el).onclick=()=>show('profile','a-up')};
 VIEWS.profile=el=>{el.classList.add('blue');el.innerHTML=`${dots(4)}<div style="text-align:center;padding-top:150px"><p style="font-weight:600;margin:0 0 14px">My Profile</p><div class="avatar">${safeImg(OB.photo)?`<img src="${OB.photo}" alt="">`:'🙂'}</div><p style="font-weight:600;font-size:20px;margin:18px 0 0">${esc(OB.name)}</p><p style="margin:2px 0 0;font-weight:600">@${esc(OB.id)}</p><div class="row" style="justify-content:center;margin-top:24px;gap:10px"><div class="stat" style="width:150px;text-align:left"><b>1</b>demo room ready</div><div class="stat" style="width:90px;text-align:left"><b>${OB.friends.length}</b>friends</div></div><button class="btn" id="go" style="margin-top:46px;width:64px;height:64px;padding:0;border-radius:20px;font-size:30px" aria-label="Create account">→</button></div>`;
   $('#go',el).onclick=async()=>{const b=$('#go',el);b.disabled=true;b.textContent='…';try{await createAccount()}catch(e){b.disabled=false;b.textContent='→'}}};
-async function createAccount(){const now=Date.now();const acc={name:OB.name,photo:safeImg(OB.photo),friends:OB.friends.slice(0,50),created:now};
-  try{await DB.doc('accounts/'+OB.id).set(acc)}catch(e){if(MODE==='cloud'&&e&&e.code==='invalid_argument'){useLocal('You can view the shared space but not save to it — saving on this device instead');MODE='local-readonly';modeLabel();await LOCAL.doc('accounts/'+OB.id).set(acc)}else{toast('Couldn\'t create the account');throw e}}
+async function createAccount(){const now=Date.now();if(!AUTH?.currentUser)throw new Error('Your login session expired. Please sign in again.');const acc={uid:AUTH.currentUser.uid,username:OB.id,name:OB.name,photo:safeImg(OB.photo),friends:OB.friends.slice(0,50),created:now};
+  try{await DB.doc('accounts/'+OB.id).set(acc);await DB.doc('users/'+AUTH.currentUser.uid).set({username:OB.id,created:now})}catch(e){toast('Could not create your cloud profile: '+(e.message||e.code));throw e}
   for(const f of acc.friends){try{const o=await gd('accounts/'+f);if(o){const th=(o.friends||[]).slice();if(!th.includes(OB.id)){th.push(OB.id);await DB.doc('accounts/'+f).update({friends:th})}}}catch(e){}}
   await W(()=>seedDemo(OB.id));await enter({id:OB.id,...acc});toast(`Welcome, ${OB.name}! Your demo room MUNCHERS is ready`,3200)}
 async function seedDemo(uid){const now=Date.now(),D=864e5;const rid='r'+nid(),capA='k'+nid();const by=[uid,'bot:Jamie','bot:Allison','bot:Jacob'];
@@ -488,8 +506,9 @@ async function seedDemo(uid){const now=Date.now(),D=864e5;const rid='r'+nid(),ca
   w.push(DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:0,e:'😍',x:82,y:14,text:'',by:'bot:Jamie',at:now-50*D}));
   w.push(DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:1,e:'',x:0,y:0,text:'Why???',by:'bot:Allison',at:now-49*D}));
   w.push(DB.doc('reactions/x'+nid()).set({room:rid,cap:zids[0],page:3,e:'👉',x:10,y:70,text:'',by:'bot:Jacob',at:now-49*D}));
-  await Promise.all(w);
+  // Create the parent room first so Firestore membership rules allow its child documents.
   await DB.doc('rooms/'+rid).set({name:'MUNCHERS',d:'#e08080',p:'#ffadb5',w:'#bfdcf7',f:'#9bbde0',hb:'#93545a',hl:'#62494b',group:['#f9a77a','#d3b8e3','#aed58f','#a6b3e8'],members:by,drawing:null,pinned:[zids[0]],nextOpen:now+(14*60+31)*6e4,cap:{id:capA,started:now-5*D},ready:{[capA]:{'bot:Jamie':true,'bot:Allison':true}},created:now,owner:uid});
+  await Promise.all(w);
 }
 
 /* ---------- friends ---------- */
@@ -561,7 +580,7 @@ function profileSheet(){const fr=friendsOf();
     $('#myf',b).onclick=async e=>{const x=e.target.closest('[data-p]');if(!x)return;x.disabled=true;try{await toggleFriend(x.dataset.p)}catch(er){}profileSheet()};
     friendFinder($('#ff',b),()=>profileSheet());
     $('#so',b).onclick=signOut})}
-function signOut(){closeSheet();stopSubs();ME=null;ROOMS=[];CAPS=[];CANV=[];RX=[];CUR=null;LS.del('ploop.me');show('signin')}
+async function signOut(){closeSheet();stopSubs();try{await AUTH?.signOut()}catch(e){console.warn(e)}AUTH_USER=null;authScreenMode='login';ME=null;ROOMS=[];CAPS=[];CANV=[];RX=[];CUR=null;LS.del('ploop.me');show('signin')}
 
 /* ---------- create room ---------- */
 let draft=null;
@@ -803,9 +822,11 @@ $('#dev').onclick=async e=>{const k=e.target.closest('button')?.dataset.dev;if(!
 $('#devToggle').onclick=()=>$('#dev').classList.toggle('open');
 
 /* ---------- boot ---------- */
-(async()=>{show('load');await initStore();modeLabel();
-  const last=LS.get('ploop.me',null);if(typeof last==='string'){try{const a=await gd('accounts/'+last);if(a){await enter(a);return}}catch(e){}}
-  show('signin','a-fade')})();
+(async()=>{show('load');try{await initStore();modeLabel();
+    await new Promise(resolve=>{let off=()=>{};off=AUTH.onAuthStateChanged(()=>{off();resolve()},()=>resolve())});
+    if(AUTH.currentUser){AUTH_USER=AUTH.currentUser;const q=await DB.collection('accounts').where('uid','==',AUTH.currentUser.uid).limit(1).get();if(!q.empty){const d=q.docs[0];await enter({id:d.id,...d.data()});return}await AUTH.signOut()}
+    show('signin','a-fade');
+  }catch(e){console.error('Firebase initialization failed',e);MODE='error';modeLabel();show('signin','a-fade');toast('Ploop cloud could not connect. Check Firebase setup and internet.',5000)}})();
 }
 </script>
 </body>

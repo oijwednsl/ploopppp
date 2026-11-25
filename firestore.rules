@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function myUsername() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username;
+    }
+    function isRoomMember(roomId) {
+      return signedIn() && exists(/databases/$(database)/documents/rooms/$(roomId))
+        && get(/databases/$(database)/documents/rooms/$(roomId)).data.members.hasAny([myUsername()]);
+    }
+    function isOwnAccount(username) {
+      return signedIn() && resource.data.uid == request.auth.uid;
+    }
+    function isAddingMeToFriends() {
+      let oldFriends = resource.data.get('friends', []);
+      let newFriends = request.resource.data.get('friends', []);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends'])
+        && newFriends.size() == oldFriends.size() + 1
+        && newFriends.hasAll(oldFriends)
+        && newFriends.hasAny([myUsername()]);
+    }
+    function isRemovingMeFromFriends() {
+      let oldFriends = resource.data.get('friends', []);
+      let newFriends = request.resource.data.get('friends', []);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends'])
+        && oldFriends.size() == newFriends.size() + 1
+        && oldFriends.hasAll(newFriends)
+        && oldFriends.hasAny([myUsername()])
+        && !newFriends.hasAny([myUsername()]);
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.username is string
+        && get(/databases/$(database)/documents/accounts/$(request.resource.data.username)).data.uid == request.auth.uid;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.username == resource.data.username;
+      allow delete: if false;
+    }
+
+    match /accounts/{username} {
+      // Profiles are searchable by signed-in Ploop users. Never store email or passwords here.
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.username == username;
+      allow update: if signedIn() && (isOwnAccount(username) || isAddingMeToFriends() || isRemovingMeFromFriends());
+      allow delete: if isOwnAccount(username);
+    }
+
+    match /rooms/{roomId} {
+      allow read: if signedIn() && resource.data.members.hasAny([myUsername()]);
+      allow create: if signedIn()
+        && request.resource.data.owner == myUsername()
+        && request.resource.data.members.hasAny([myUsername()]);
+      allow update: if signedIn() && resource.data.members.hasAny([myUsername()])
+        && request.resource.data.owner == resource.data.owner
+        && request.resource.data.members.hasAll(resource.data.members);
+      allow delete: if signedIn() && resource.data.owner == myUsername();
+    }
+
+    match /capsules/{docId} {
+      allow read, update, delete: if isRoomMember(resource.data.room);
+      allow create: if signedIn() && isRoomMember(request.resource.data.room);
+    }
+    match /canvases/{docId} {
+      allow read, update, delete: if isRoomMember(resource.data.room);
+      allow create: if signedIn() && isRoomMember(request.resource.data.room);
+    }
+    match /reactions/{docId} {
+      allow read, update, delete: if isRoomMember(resource.data.room);
+      allow create: if signedIn() && isRoomMember(request.resource.data.room);
+    }
+  }
+}
