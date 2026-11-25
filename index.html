@@ -633,14 +633,16 @@ function drawBar(el){const r=room(),cb=el&&$('#cb',el);if(!r||!cb)return;const r
   if(!me)cb.innerHTML=`<div><h2>${others.length?esc(list(others))+(others.length>1?' are':' is')+' ready to close the capsule':'Are you ready to close the capsule?'}</h2><p>The capsule will close when everyone is ready.</p></div><button class="ready" id="rd" ${has?'':'disabled'}>I am ready</button>`;
   else cb.innerHTML=`<div><h2>${esc(list(['You',...others]))} ${others.length?'are':'are'} ready to close the capsule</h2><p>${waiting.length?'Waiting for '+esc(list(waiting))+'… ':''}<a id="undo">not yet</a></p></div>`;
   const rd=$('#rd',el);if(rd)rd.onclick=async()=>{rd.disabled=true;await W(()=>setReady(r,ME.id,true));simulateBots(r.id)};
-const un=$('#undo',el);if(un)un.onclick=async()=>{await W(()=>setReady(r,ME.id,false))}
-   const simT={};
+  const un=$('#undo',el);if(un)un.onclick=async()=>{await W(()=>setReady(r,ME.id,false))};
+}   // <-- this closes drawBar
+
+const setReady=(r,who,val)=>DB.doc('rooms/'+r.id).update(new firebase.firestore.FieldPath('ready',capCur(r),who),val);
+const simT={};
 function simulateBots(rid){clearTimeout(simT[rid]);const step=async()=>{const r=ROOMS.find(x=>x.id===rid);if(!r||!readyMap(r)[ME.id])return;const b=r.members.find(m=>isBot(m)&&!readyMap(r)[m]);if(!b)return;
   try{await setReady(r,b,true);toast(`${b.slice(4)} is ready too!`)}catch(e){}simT[rid]=setTimeout(step,2400)};simT[rid]=setTimeout(step,2400)}
 const closingNow=new Set();
-const setReady=(r,who,val)=>DB.doc('rooms/'+r.id).update(new firebase.firestore.FieldPath('ready',capCur(r),who),val);
-   async function tryClose(r){const capId=capCur(r);if(!capId||closingNow.has(capId))return;closingNow.add(capId);
-  try{const lease=await DB.doc('rooms/'+r.id).acquire({holder:ME.id+':'+nid(),ttlMs:15000});if(!lease||!lease.acquired){closingNow.delete(capId);return}
+async function tryClose(r){const capId=capCur(r);if(!capId||closingNow.has(capId))return;closingNow.add(capId);
+  try{
     const fresh=await gd('rooms/'+r.id);if(!fresh||capCur(fresh)!==capId||!allReady(fresh)){closingNow.delete(capId);return}
     const anim=curScreen==='capsule'&&CUR===r.id;if(anim){BUSY=true;await closeAnimStart()}
     const items=CANV.filter(c=>c.cap===capId).sort((a,b)=>(a.at||0)-(b.at||0));const now=new Date(),st=new Date(fresh.cap.started||Date.now());const mc=CAPS.filter(c=>c.status==='machine').length;
